@@ -1,0 +1,452 @@
+# 
+
+name: Super Patcher for A/B Devices, v5
+
+on:
+    workflow_dispatch:
+        inputs:
+            GITHUB_RELEASE_HEADING:
+                description: 'Release Name (For Github Releases), It will also be the name for the file output, so No spaces'
+                required: true
+            SUPER_IMAGE_URL:
+                description: 'Enter the URL of Super.img that will be used for patching...'
+                required: true
+            IS_SUPER_SPARSE:
+                description: 'Is the Super.img Sparse? (if true, the image will be converted first from sparse, to non-sparse to edit, RECOMMEND to read the wiki)'
+                required: true
+                type: boolean
+            SUPER_COMPRESS:
+                description: 'Does the super.img you provided, is compressed? (if .img only, use uncompressed, else; select whats appropriate)'
+                required: true
+                default: 'tar.xz'
+                type: choice
+                options:
+                    - uncompressed
+                    - tar
+                    - tar.xz
+                    - tar.gz
+                    - zip
+                    - 7z
+            COMPRESSION_RESULT_CHOICE:
+                description: 'Select the compression type of the output. (if LZ4, it will still be contained inside tar)'
+                required: true
+                default: 'tar.xz'
+                type: choice
+                options:
+                    - tar
+                    - tar.xz
+                    - tar.gz
+                    - zip
+                    - 7z
+                    - lz4
+                    - uncompressed
+            GSI_ROM_LINK:
+                description: 'Enter the URL of the GSI ROM that will be used for patching...'
+                required: true
+            GSI_FILETYPE:
+                description: 'Select the filetype of the GSI, incorrectly selecting this option will abort every process... (To select, lets say the file was called Lineage22.img.gz, select the img.gz, No compression means its just .img, check the wiki for more info)'
+                required: true
+                default: 'tar.xz'
+                type: choice
+                options:
+                    - 'img.gz'
+                    - 'img.xz'
+                    - 'tar.xz'
+                    - 'tar.gz'
+                    - 'zip'
+                    - '7z'
+                    - 'xz'
+                    - 'No compression'
+            SPARSE_SYSTEM_IMAGE:
+                description: 'Is the GSI Sparse? (if true, the image will be converted first from sparse, to non-sparse to edit, RECOMMEND to read the wiki. TLDR: Recommended to be disabled)'
+                required: false
+                type: boolean
+                default: false
+            SFTP_SERVER_DESTINATION:
+                description: 'Enter the SFTP Path Server Destination for the output... (Dont forget to add another slash at the end, like this: /home/pfs/project/rombuilds/GSI/Jan16/   ; with the part Jan16/ has a slash at the end)'
+
+jobs:
+    build:
+        name: 'Patch Super.img'
+        runs-on: ubuntu-22.04
+        permissions:
+            contents: write
+            packages: write
+            actions: write
+        steps:
+            - name: Display Session Parameters, for Debugging
+              run: |
+                echo "Environment variables:"
+                echo "Release Name: ${{ github.event.inputs.GITHUB_RELEASE_HEADING }}"
+                echo "Super.img target that will be used: ${{ github.event.inputs.SUPER_IMAGE_URL }}"
+                echo "Is the Super.img Sparse? ${{ github.event.inputs.IS_SUPER_SPARSE }}"
+                echo "Is the Super.img Compressed? ${{ github.event.inputs.SUPER_COMPRESS }}"
+                echo "Compression Result Choice: ${{ github.event.inputs.COMPRESSION_RESULT_CHOICE }}"
+                echo "GSI ROM Link: ${{ github.event.inputs.GSI_ROM_LINK }}"
+                echo "GSI Filetype: ${{ github.event.inputs.GSI_FILETYPE }}"
+                echo "Is the GSI Sparse? ${{ github.event.inputs._IMAGE }}"
+                echo "SFTP Server Destination: ${{ github.event.inputs.SFTP_SERVER_DESTINATION }}"
+
+            - name: Checkout
+              uses: actions/checkout@v3
+
+            - name: Clean Bloated Actions environment
+              uses: rokibhasansagar/slimhub_actions@main
+              with:
+                retain: "docker_imgcache,docker_buildkit,container_tools,nodejs_npm,toolcache_node"
+                # We need dockers for sending files and alerts
+
+            - name: Display Partitions and CPU Info
+              run: |
+                lsblk
+                echo ""
+                cat /proc/cpuinfo
+                echo ""
+                free -h
+            
+            - name: Install Dependencies
+              run: |
+                sudo apt update
+                sudo apt upgrade -y
+                sudo apt install p7zip* aria2 wget android-tools* lz4 rsync zstd libprotobuf-dev brotli android-sdk-libsparse-utils xz-utils img2simg simg2img
+                pwd >> directory.txt
+                LOCPOINT=$(pwd)
+                echo "Location Point: $LOCPOINT"
+
+            - name: Grab Utils
+              run: |
+                mkdir bin
+                cd bin
+                wget https://github.com/Mizumo-prjkt/super-patch/raw/refs/heads/main/packages/amd64/lpadd
+                wget https://github.com/Mizumo-prjkt/super-patch/raw/refs/heads/main/packages/amd64/lpdump
+                wget https://github.com/Mizumo-prjkt/super-patch/raw/refs/heads/main/packages/amd64/lpmake
+                wget https://github.com/Mizumo-prjkt/super-patch/raw/refs/heads/main/packages/amd64/lpunpack
+                chmod +x *
+                sudo cp -rf * /usr/bin/
+                cd ..
+                sudo chmod +x /usr/bin/lpadd /usr/bin/lpdump /usr/bin/lpmake /usr/bin/lpunpack
+                mkdir universal
+                cd universal
+                wget https://github.com/Mizumo-prjkt/super-patch/raw/refs/heads/main/fake-props/product.img
+                wget https://github.com/Mizumo-prjkt/super-patch/raw/refs/heads/main/fake-props/system_ext.img
+                cd ..
+                # had to put this here, because there will be a mechanism point to sparse the image
+                mkdir -p rel
+            
+            - name: Grabbing Images
+              run: |
+                mkdir cmp_img
+                cd cmp_img
+                GSILINK=${{ github.event.inputs.GSI_ROM_LINK }}
+                SUPERLINK=${{ github.event.inputs.SUPER_IMAGE_URL }}
+                SELECTION_GSI=${{ github.event.inputs.GSI_FILETYPE }}
+                SELECTION_SUPER=${{ github.event.inputs.SUPER_COMPRESS }}
+                case "$SELECTION_GSI" in
+                    "img.gz")
+                        aria2c -x 15 $GSILINK
+                        gzip -d *.img.gz
+                        ;;
+                    "img.xz")
+                        aria2c -x 15 $GSILINK
+                        xz -d *.img.xz
+                        ;;
+                    "tar.xz")
+                        aria2c -x 15 $GSILINK
+                        tar -xvf *.tar.xz
+                        ;;
+                    "tar.gz")
+                        aria2c -x 15 $GSILINK
+                        tar -xvf *.tar.gz
+                        ;;
+                    "zip")
+                        aria2c -x 15 $GSILINK
+                        unzip *.zip
+                        ;;
+                    "7z")
+                        aria2c -x 15 $GSILINK
+                        7z x *.7z
+                        ;;
+                    "xz")
+                        aria2c -x 15 $GSILINK
+                        xz -d *.xz
+                        ;;
+                    "No compression")
+                        aria2c -x 15 $GSILINK
+                        ;;
+                esac
+                if [ -e system.img ]; then
+                    # if theres a system.img inside a compressed file, just ignore
+                    echo "system.img found, ignoring the rest"
+                else
+                    mv *.img $(pwd)/system.img
+                fi
+                cd ..
+                mkdir -p image_build
+                cd image_build
+                case "$SELECTION_SUPER" in
+                    "tar")
+                        aria2c -x 15 $SUPERLINK
+                        tar -xvf *.tar
+                        ;;
+                    "tar.xz")
+                        aria2c -x 15 $SUPERLINK
+                        tar -xvf *.tar.xz
+                        ;;
+                    "tar.gz")
+                        aria2c -x 15 $SUPERLINK
+                        tar -xvf *.tar.gz
+                        ;;
+                    "zip")
+                        aria2c -x 15 $SUPERLINK
+                        unzip *.zip
+                        ;;
+                    "7z")
+                        aria2c -x 15 $SUPERLINK
+                        7z x *.7z
+                        ;;
+                    "uncompressed")
+                        aria2c -x 15 $SUPERLINK
+                        ;;
+                esac
+                cd ..
+            
+            - name: Indexing Super.img
+              run: |
+                # Tryna make sure lol
+                export DIR="$(pwd)/image_build"
+                export ODM="$DIR/odm.img"
+                export PRODUCT="$DIR/product.img"
+                export SYSTEM="$DIR/system.img"
+                export SYSTEM_EXT="$DIR/system_ext.img"
+                export VENDOR="$DIR/vendor.img"
+                export SUPER="$DIR/super.img"
+                export FAKEPROPS="$DIR/universal"
+                # ENV TEMP
+                export ENVTEMP="$DIR/ENVTEMP"
+                mkdir -p $ENVTEMP
+                if [ -e "$SUPER" ]; then
+                    if [ "${{github.event.inputs.IS_SUPER_SPARSE}}" == 'true' ]; then
+                        echo "Converting Super.img to non-sparse..."
+                        simg2img $DIR/super.img $DIR/super_raw.img
+                    fi
+                    if [ -e "$DIR/super_raw.img" ] && [ "${{github.event.inputs.IS_SUPER_SPARSE}}" == 'true' ]; then
+                        if [ "$(ls -nl $DIR/super_raw.img | awk '{print $5}')" -lt 100000 ]; then
+                            rm -rf super_raw.img
+                            lpdump $DIR/super.img > $ENVTEMP/super_map.txt
+                            printf "$(<$ENVTEMP/super_map.txt)" | grep -e "Size:" | awk '{print $2}' > $ENVTEMP/super_size.txt
+                            printf "$(<$ENVTEMP/super_map.txt)" | grep -e "Maximum size:" | awk '{print $3}' | sed '2!d' > $ENVTEMP/super_main.txt
+                            lpunpack $DIR/super.img $DIR/
+                        else
+                            rm -rf super.img
+                            lpdump $DIR/super_raw.img > $ENVTEMP/super_map.txt
+                            printf "$(<$ENVTEMP/super_map.txt)" | grep -e "Size:" | awk '{print $2}' > $ENVTEMP/super_size.txt
+                            printf "$(<$ENVTEMP/super_map.txt)" | grep -e "Maximum size:" | awk '{print $3}' | sed '2!d' > $ENVTEMP/super_main.txt
+                            lpunpack $DIR/super.img $DIR/
+                        fi
+                    else
+                        lpdump $DIR/super.img > $ENVTEMP/super_map.txt
+                        printf "$(<$ENVTEMP/super_map.txt)" | grep -e "Size:" | awk '{print $2}' > $ENVTEMP/super_size.txt
+                        printf "$(<$ENVTEMP/super_map.txt)" | grep -e "Maximum size:" | awk '{print $3}' | sed '2!d' > $ENVTEMP/super_main.txt
+                        lpunpack $DIR/super.img $DIR/
+                    fi
+                fi
+            
+            - name: Editing Super.img
+              run: |
+                # Tryna make sure lol
+                export DIR="$(pwd)/image_build"
+                export ODM="$DIR/odm.img"
+                export PRODUCT="$DIR/product.img"
+                export SYSTEM="$DIR/system.img"
+                export SYSTEM_EXT="$DIR/system_ext.img"
+                export VENDOR="$DIR/vendor.img"
+                export SUPER="$DIR/super.img"
+                export FAKEPROPS="$DIR/universal"
+                # ENV TEMP
+                export ENVTEMP="$DIR/ENVTEMP"
+                rm -rf $SYSTEM
+                cp cmp_img/system.img $SYSTEM
+                if [ "$(ls -nl "$SYSTEM" | awk '{print $5}')" -lt 100000 ]; then 
+                    echo "INVALID SIZE OF SYSTEM.IMG GSI, ABORT"
+                    exit 1
+                fi
+                cp universal/* $DIR/
+            
+            - name: Building Super.img
+              run: |
+                # Tryna make sure lol
+                export DIR="$(pwd)/image_build"
+                export ODM="$DIR/odm.img"
+                export PRODUCT="$DIR/product.img"
+                export SYSTEM="$DIR/system.img"
+                export SYSTEM_EXT="$DIR/system_ext.img"
+                export VENDOR="$DIR/vendor.img"
+                export SUPER="$DIR/super.img"
+                export FAKEPROPS="$DIR/universal"
+                # ENV TEMP
+                export ENVTEMP="$DIR/ENVTEMP"
+                rm -rf $SUPER
+                if [ "$(find $DIR/system.img -type f ! -size 0 -printf '%S\n' | sed 's/.\.[0-9]*//')" == 1 ]; then
+                    echo "SOMETHING IS NOT RIGHT ON THIS SYSTEM.IMG, PROCEEDING WITH EXTREME CAUTION"
+                else
+                    if [ "${{github.event.inputs.SPARSE_SYSTEM_IMAGE}}" == 'true' ]; then
+                        echo "Converting GSI to non-sparse..."
+                        simg2img $DIR/system.img $DIR/system_raw.img
+                        rm -rf $DIR/system.img
+                        mv $DIR/system_raw.img $DIR/system.img
+                        echo "Converted"
+                    fi
+                fi
+                if [ -e "$DIR/odm.img" ]; then
+                    if [ -e "$DIR/product.img" ]; then
+                        if [ "$(ls -nl $DIR/product.img | awk '{print $5}')" -gt 6000 ]; then
+                            echo "PRODUCT IMAGE IS TOO BIG, SHRINKING"
+                            cp -urf universal/product.img $DIR/product.img
+                        fi
+                    else
+                        cp -urf universal/product.img $DIR/product.img
+                    fi
+                    if [ !  -e "$DIR/system_ext.img" ]; then
+                        cp -urf universal/system_ext.img $DIR/product.img
+                    else 
+                        cp -urf universal/system_ext.img $DIR/product.img
+                    fi
+                    lpmake --metadata-size 65536 --super-name super --metadata-slots 2 --device super:$(<$ENVTEMP/super_size.txt) --group main:$(<$ENVTEMP/super_main.txt) --partition system:readonly:$(ls -nl $DIR/system.img | awk '{print $5}'):main --image system=$DIR/system.img --partition vendor:readonly:$(ls -nl $DIR/vendor.img | awk '{print $5}'):main --image vendor=$DIR/vendor.img --partition product:readonly:$(ls -nl $DIR/product.img | awk '{print $5}'):main --image product=$DIR/product.img --partition odm:readonly:$(ls -nl $DIR/odm.img | awk '{print $5}'):main --image odm=$DIR/odm.img --sparse --output $DIR/super.img
+                else
+                    if [ -e "$DIR/product.img" ]; then
+                        if [ "$(ls -nl $DIR/product.img | awk '{print $5}')" -gt 6000 ]; then
+                            echo "PRODUCT IMAGE IS TOO BIG, SHRINKING"
+                            cp -urf universal/product.img $DIR/product.img
+                        fi
+                    else
+                        cp -urf universal/product.img $DIR/product.img
+                    fi
+                    if [ !  -e "$DIR/system_ext.img" ]; then
+                        cp -urf universal/system_ext.img $DIR/product.img
+                    else 
+                        cp -urf universal/system_ext.img $DIR/product.img
+                    fi
+                    lpmake --metadata-size 65536 --super-name super --metadata-slots 2 --device super:$(<$ENVTEMP/super_size.txt) --group main:$(<$ENVTEMP/super_main.txt) --partition system:readonly:$(ls -nl $DIR/system.img | awk '{print $5}'):main --image system=$DIR/system.img --partition vendor:readonly:$(ls -nl $DIR/vendor.img | awk '{print $5}'):main --image vendor=$DIR/vendor.img --partition product:readonly:$(ls -nl $DIR/product.img | awk '{print $5}'):main --image product=$DIR/product.img --partition system_ext:readonly:$(ls -nl $DIR/system_ext.img | awk '{print $5}'):main --image system_ext=$DIR/system_ext.img --sparse --output $DIR/super.img
+                fi
+            
+            # We now pack both compressed and uncompressed Tar
+
+            - name: Packing the image
+              run: |
+                # Tryna make sure lol
+                export DIR="$(pwd)/image_build"
+                export ODM="$DIR/odm.img"
+                export PRODUCT="$DIR/product.img"
+                export SYSTEM="$DIR/system.img"
+                export SYSTEM_EXT="$DIR/system_ext.img"
+                export VENDOR="$DIR/vendor.img"
+                export SUPER="$DIR/super.img"
+                export FAKEPROPS="$DIR/universal"
+                # ENV TEMP
+                export ENVTEMP="$DIR/"
+                cd $DIR
+                case "${{github.event.inputs.COMPRESSION_RESULT_CHOICE}}" in
+                    "tar")
+                        echo "Starting 2026, ill add lz4"
+                        lz4 -9 -v super.img super.img.lz4
+                        tar -cvf ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.tar super.img.lz4
+                        tar -cvf ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.tar super.img
+                        cd ..
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.tar rel/
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.tar rel/
+                        ;;
+                    "tar.xz")
+                        lz4 -9 -v super.img super.img.lz4
+                        tar -cvf - super.img | xz -z -9 -T0 - > ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.tar.xz
+                        tar -cvf - super.img.lz4 | xz -z -9 -T0 - > ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.tar.xz 
+                        cd ..
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.tar.xz rel/
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.tar.xz rel/
+                        ;;
+                    "tar.gz")
+                        lz4 -9 -v super.img super.img.lz4
+                        tar -cvf - super.img.lz4 | gzip -9 - > ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.tar.gz
+                        tar -cvf - super.img | gzip -9 - > ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.tar.gz
+                        cd ..
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.tar.gz rel/
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.tar.gz rel/
+                        ;;
+                    "zip")
+                        lz4 -9 -v super.img super.img.lz4
+                        zip -r -9 ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.zip super.img.lz4
+                        zip -r -9 ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.zip super.img
+                        cd ..
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.zip rel/
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.zip rel/
+                        ;;
+                    "7z")
+                        lz4 -9 -v super.img super.img.lz4
+                        7z a -t7z -m0=lzma -mx=9 -mfb=64 -md=32m -ms=on ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.7z super.img.lz4
+                        7z a -t7z -m0=lzma -mx=9 -mfb=64 -md=32m -ms=on ${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.7z super.img
+                        cd ..
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_lz4.7z rel/
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}_nolz4.7z rel/
+                        ;;
+                    "lz4")
+                        lz4 -9 -v super.img super.img.lz4
+                        tar -cvf "${{github.event.inputs.GITHUB_RELEASE_HEADING}}.tar" super.img.lz4
+                        cd ..
+                        cp -rf $DIR/${{github.event.inputs.GITHUB_RELEASE_HEADING}}.tar rel/
+                        ;;
+                    "uncompressed")
+                        echo "You selected uncompressed, duhhhhh"
+                        cp -rf $DIR/super.img rel/
+                        ;;
+                esac
+            
+            - name: Send to GH Releases
+              continue-on-error: true
+              uses: softprops/action-gh-release@v2
+              with:
+                    files: |
+                        rel/*
+                    name: ${{ github.event.inputs.GITHUB_RELEASE_HEADING }}
+                    tag_name: ${{ github.run_id }}
+                    body: |
+                        This is the build of the Super.img patcher, the build was successful, and the output is attached to this release.
+
+                        ID: ${{ github.run_id }}
+
+                        Mirror: ${{secrets.SFTP_REPO_LINK}}<br>
+                        Note: If the build is not here, it is on the mirror, check the mirror link above. And if the owner of the repo is not sharing the mirror, either its private or the person who used this repo is dumb
+
+                        Builder Used: Next Generation Super.img Patcher v07 - January 2026
+
+                        Notes:
+                        - Please prepare a backup of a working super.img file because there will be tendencies that the ROM would not work.
+                        - There are two types of file, the ones with `_lz4` and `_nolz4`. `lz4` means the super.img is already compressed to lz4, and `_nolz4` means the super.img is not compressed to lz4.
+
+              env:
+                    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            
+            - name: Send to SFTP
+              if: ${{ github.event.inputs.SFTP_SERVER_DESTINATION }}
+              continue-on-error: true
+              uses: pressidium/lftp-mirror-action@v1
+              with:
+                host: ${{ secrets.SFTP_HOSTS }}
+                port: ${{ secrets.SFTP_PORT }}
+                user: ${{ secrets.SFTP_USERNAME }}
+                pass: ${{ secrets.SFTP_PASSWORD }}
+                localDir: rel/
+                remoteDir: ${{ github.event.inputs.SFTP_SERVER_DESTINATION }}
+
+            - name: Send alert to Telegram users via Bots
+              run: |
+                curl -X POST \
+                https://api.telegram.org/bot${{secrets.TELEGRAM_TOKEN}}/sendMessage \
+                -d chat_id=${{secrets.TELEGRAM_TO}} \
+                -d text="Super Patch Action CI Notification! %0A%0A Release Name: ${{ github.event.inputs.GITHUB_RELEASE_HEADING }} %0A Build ID: ${{ github.run_id }} %0A GitHub: https://github.com/MizProject/super-patch-action/releases/tag/${{github.run_id}} %0A Mirror to download: ${{secrets.SFTP_REPO_LINK}} %0A%0A Builder Used: Next Generation Super.img Patcher v07 - January 2026 %0A%0A Notes: %0A%0A - Please prepare a backup of super.img and your personal data before doing this, also note that theres a chance that this image would not work on your device due to no EROFS support since GSI authors rarely announce the build's FS requirements, causing some issues." \
+                -d reply_markup='{"inline_keyboard": [[{"text": "Download from GitHub", "url": "https://github.com/MizProject/super-patch-action/releases/tag/${{github.run_id}}"}, {"text": "Check Mirror Repository", "url": "${{secrets.SFTP_REPO_LINK}}"}]]}'
+                
+
+
+            
+            
+
+            
