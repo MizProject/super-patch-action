@@ -14,7 +14,7 @@ Read the wiki: https://github.com/MizProject/super-patch-action/wiki
 <div align=center>
 <h3>Badges</h3>
 
-![alttext](https://img.shields.io/static/v1?label=Status&message=Working&color=brightgreen) ![alttext](https://img.shields.io/badge/Latest_Version-v0.6-purple) ![alttext](https://img.shields.io/badge/SFTP_to_SourceForge-GOOD-BrightGreen?style=flat&logo=Sourceforge) 
+![alttext](https://img.shields.io/static/v1?label=Status&message=Working&color=brightgreen) ![alttext](https://img.shields.io/badge/Latest_Version-v0.7-purple) ![alttext](https://img.shields.io/badge/SFTP_to_SourceForge-GOOD-BrightGreen?style=flat&logo=Sourceforge) 
 
 [![alttext](https://img.shields.io/badge/-Visit_Mizumo/Xynoxx's_SourceForge_By_clicking_ME-black?style=for-the-badge&logo=Sourceforge&logoColor=f5f5f5)](https://sourceforge.net/projects/xynoxx-prebuilt-gsi/files/) 
 
