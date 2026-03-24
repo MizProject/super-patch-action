@@ -4,8 +4,8 @@ A Samsung super.img Editor for you to install GSI (Geneeric System Image) on the
 
 No Linux, or WSL, or Termux Needed!
 
-> Note:<br> In March 2025, this area will undergone fixing to make sure it is user friendly as possible
-</div>
+> [!WARNING]
+> FOR PEOPLE LIVING IN BRAZIL OR CALIFORNIA, YOU HAVE NO RIGHTS TO INSTALL ANY OF THESE IMAGES PROVIDED BY ME DUE TO AGE VERIFICATION LAWS. I WILL NOT ENTERTAIN ANYONE WHO IS LIVING IN THOSE NATIONS, GO TELL YOUR LEGISLATIONS TO TURN DOWN AGE VERIFICATION AT OS LEVEL
 
 Read the wiki: https://github.com/MizProject/super-patch-action/wiki
 
