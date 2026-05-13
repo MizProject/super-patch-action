@@ -137,41 +137,41 @@ jobs:
               run: |
                 mkdir cmp_img
                 cd cmp_img
-                GSILINK=${{ github.event.inputs.GSI_ROM_LINK }}
-                SUPERLINK=${{ github.event.inputs.SUPER_IMAGE_URL }}
-                SELECTION_GSI=${{ github.event.inputs.GSI_FILETYPE }}
-                SELECTION_SUPER=${{ github.event.inputs.SUPER_COMPRESS }}
+                GSILINK="${{ github.event.inputs.GSI_ROM_LINK }}"
+                SUPERLINK="${{ github.event.inputs.SUPER_IMAGE_URL }}"
+                SELECTION_GSI="${{ github.event.inputs.GSI_FILETYPE }}"
+                SELECTION_SUPER="${{ github.event.inputs.SUPER_COMPRESS }}"
                 case "$SELECTION_GSI" in
                     "img.gz")
-                        aria2c -x 15 $GSILINK
+                        aria2c -x 15 "$GSILINK"
                         gzip -d *.img.gz
                         ;;
                     "img.xz")
-                        aria2c -x 15 $GSILINK
+                        aria2c -x 15 "$GSILINK"
                         xz -d *.img.xz
                         ;;
                     "tar.xz")
-                        aria2c -x 15 $GSILINK
+                        aria2c -x 15 "$GSILINK"
                         tar -xvf *.tar.xz
                         ;;
                     "tar.gz")
-                        aria2c -x 15 $GSILINK
+                        aria2c -x 15 "$GSILINK"
                         tar -xvf *.tar.gz
                         ;;
                     "zip")
-                        aria2c -x 15 $GSILINK
+                        aria2c -x 15 "$GSILINK"
                         unzip *.zip
                         ;;
                     "7z")
-                        aria2c -x 15 $GSILINK
+                        aria2c -x 15 "$GSILINK"
                         7z x *.7z
                         ;;
                     "xz")
-                        aria2c -x 15 $GSILINK
+                        aria2c -x 15 "$GSILINK"
                         xz -d *.xz
                         ;;
                     "No compression")
-                        aria2c -x 15 $GSILINK
+                        aria2c -x 15 "$GSILINK"
                         ;;
                 esac
                 if [ -e system.img ]; then
@@ -185,27 +185,27 @@ jobs:
                 cd image_build
                 case "$SELECTION_SUPER" in
                     "tar")
-                        aria2c -x 15 $SUPERLINK
+                        aria2c -x 15 "$SUPERLINK"
                         tar -xvf *.tar
                         ;;
                     "tar.xz")
-                        aria2c -x 15 $SUPERLINK
+                        aria2c -x 15 "$SUPERLINK"
                         tar -xvf *.tar.xz
                         ;;
                     "tar.gz")
-                        aria2c -x 15 $SUPERLINK
+                        aria2c -x 15 "$SUPERLINK"
                         tar -xvf *.tar.gz
                         ;;
                     "zip")
-                        aria2c -x 15 $SUPERLINK
+                        aria2c -x 15 "$SUPERLINK"
                         unzip *.zip
                         ;;
                     "7z")
-                        aria2c -x 15 $SUPERLINK
+                        aria2c -x 15 "$SUPERLINK"
                         7z x *.7z
                         ;;
                     "uncompressed")
-                        aria2c -x 15 $SUPERLINK
+                        aria2c -x 15 "$SUPERLINK"
                         ;;
                 esac
                 cd ..
